@@ -4,3 +4,4 @@ dnspython
 gunicorn
 requests
 mega.py
+certifi
