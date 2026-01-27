@@ -1,4 +1,5 @@
 # app.py - Sadece Web Arayüzü ve Veritabanı
+import certifi
 from flask import Flask, request, jsonify, render_template_string, session
 from pymongo import MongoClient
 import os
@@ -9,7 +10,8 @@ app.secret_key = "cok_gizli_key"
 
 # MongoDB Bağlantısı (Aşağıda anlatacağım nasıl alacağını)
 MONGO_URI = os.environ.get("MONGO_URI") 
-client = MongoClient(MONGO_URI)
+# ca = certifi.where() komutu SSL hatasını çözer
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['mega_leech']
 queue = db['queue']
 
