@@ -4,249 +4,209 @@ from pymongo import MongoClient
 from functools import wraps
 import os
 import datetime
+import uuid
 
 app = Flask(__name__)
 
 # --- AYARLAR ---
-# BURAYI DEGISTIR AGAM (Giris Sifresi)
-LICENSE_KEY = "YAEL-CODE-2026" 
-
-# Veritabanı
+LICENSE_KEY = "YAEL2026" 
 MONGO_URI = os.environ.get("MONGO_URI") 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['mega_leech']
 queue = db['queue']
+deliveries = db['deliveries']
 
-# --- GÜVENLİK KONTROLÜ (DECORATOR) ---
+# --- GÜVENLİK ---
 def require_license(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Header'dan veya JSON'dan anahtarı kontrol et
         key = request.headers.get('X-License-Key')
-        if not key:
-            return jsonify({"msg": "❌ LİSANS ANAHTARI EKSİK!", "error": True}), 403
-        if key != LICENSE_KEY:
+        if not key or key != LICENSE_KEY:
             return jsonify({"msg": "🚫 GEÇERSİZ LİSANS!", "error": True}), 403
         return f(*args, **kwargs)
     return decorated_function
 
-# --- HTML ARAYÜZ (GİRİŞ EKRANLI) ---
-HTML = """
+# --- HTML ANASAYFA (ŞIKIR ŞIKIR TASARIM) ---
+HTML_HOME = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YAEL /// SECURE ACCESS</title>
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <title>YAEL /// CLOUD TRANSFER</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
     <style>
-        :root { --neon: #00f3ff; --bg: #050505; --panel: #111; --danger: #ff0055; }
-        body { background-color: var(--bg); color: var(--neon); font-family: 'Share Tech Mono', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        :root { --neon: #00f3ff; --bg: #050505; --panel: #0a0a0a; --danger: #ff0055; --success: #00ff9d; }
+        body { background-color: var(--bg); color: var(--neon); font-family: 'Rajdhani', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; background-image: radial-gradient(circle at 50% 10%, #1a1a1a 0%, #000 100%); }
         
-        /* GİRİŞ EKRANI (LOGIN OVERLAY) */
-        #login-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 9999; display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-        }
-        .login-box {
-            border: 2px solid var(--neon); padding: 40px; text-align: center;
-            box-shadow: 0 0 50px rgba(0, 243, 255, 0.2); background: #111;
-            max-width: 400px; width: 90%;
-        }
-        
-        /* ANA SAYFA */
-        h1 { text-shadow: 0 0 20px var(--neon); letter-spacing: 5px; margin-bottom: 30px; }
-        .container { width: 100%; max-width: 800px; filter: blur(5px); transition: 0.5s; pointer-events: none; }
-        .container.unlocked { filter: blur(0); pointer-events: all; }
+        h1 { font-size: 3rem; text-shadow: 0 0 20px var(--neon); margin-bottom: 5px; letter-spacing: 2px; }
+        .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 40px; letter-spacing: 5px; }
 
+        .container { width: 100%; max-width: 700px; z-index: 2; }
+        
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
         input { 
-            padding: 15px; background: #222; border: 1px solid #444; color: white; 
-            font-family: inherit; font-size: 1.1rem; width: 70%; margin-bottom: 10px;
+            flex: 1; padding: 15px; background: rgba(255,255,255,0.05); border: 1px solid #333; 
+            color: white; font-family: inherit; font-size: 1.1rem; border-radius: 4px; transition: 0.3s;
         }
+        input:focus { outline: none; border-color: var(--neon); box-shadow: 0 0 15px rgba(0, 243, 255, 0.2); }
+        
         button { 
-            padding: 15px 30px; background: var(--neon); color: black; font-weight: bold; 
-            border: none; cursor: pointer; font-family: inherit; font-size: 1.1rem;
-            transition: 0.3s;
+            padding: 15px 30px; background: var(--neon); color: black; font-weight: 800; font-size: 1.1rem;
+            border: none; cursor: pointer; border-radius: 4px; transition: 0.3s;
+            box-shadow: 0 0 10px var(--neon);
         }
-        button:hover { transform: scale(1.05); box-shadow: 0 0 15px var(--neon); }
+        button:hover { transform: translateY(-2px); box-shadow: 0 0 20px var(--neon); }
 
         .card { 
-            background: #111; border: 1px solid #333; margin: 10px 0; padding: 15px;
-            display: flex; justify-content: space-between; align-items: center;
+            background: var(--panel); border: 1px solid #222; margin-bottom: 15px; padding: 20px;
+            border-left: 4px solid #333; position: relative; overflow: hidden; animation: slideIn 0.4s ease;
         }
-        .status { font-weight: bold; }
-        .completed a { color: #00ff00; text-decoration: none; border: 1px solid #00ff00; padding: 5px 10px; }
+        .card.active { border-left-color: var(--neon); }
+        .card.completed { border-left-color: var(--success); }
+        .card.error { border-left-color: var(--danger); }
+
+        .job-link { color: white; font-size: 1rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-bottom: 10px; opacity: 0.8; }
         
-        .reset-btn { background: transparent; border: 1px solid var(--danger); color: var(--danger); margin-top: 50px; }
-        .reset-btn:hover { background: var(--danger); color: white; }
+        /* İLERLEME ÇUBUĞU */
+        .progress-bg { width: 100%; background: #222; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; }
+        .progress-bar { height: 100%; background: var(--neon); width: 0%; transition: width 0.5s ease; box-shadow: 0 0 10px var(--neon); }
+        .progress-bar.striped { 
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem; animation: stripe 1s linear infinite;
+        }
+        
+        .status-row { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 8px; color: #888; text-transform: uppercase; }
+        .status-text { color: var(--neon); font-weight: bold; }
+
+        .btn-download { 
+            display: block; width: 100%; text-align: center; padding: 12px; margin-top: 10px;
+            background: transparent; border: 1px solid var(--success); color: var(--success); 
+            text-decoration: none; font-weight: bold; transition: 0.3s;
+        }
+        .btn-download:hover { background: var(--success); color: black; box-shadow: 0 0 15px var(--success); }
+
+        @keyframes stripe { from { background-position: 1rem 0; } to { background-position: 0 0; } }
+        @keyframes slideIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
 </head>
 <body>
+    <h1>YAEL TRANSFER</h1>
+    <div class="subtitle">/// UNLIMITED MEGA.NZ BRIDGE</div>
 
-    <div id="login-overlay">
-        <div class="login-box">
-            <h2 style="margin-top:0">SECURITY CHECK</h2>
-            <p>LÜTFEN LİSANS ANAHTARINI GİRİN</p>
-            <input type="password" id="license-input" placeholder="LICENSE KEY...">
-            <br><br>
-            <button onclick="login()">SİSTEME GİRİŞ</button>
-            <p id="login-msg" style="color: red; margin-top: 10px;"></p>
+    <div class="container">
+        <div id="login-area" style="text-align:center; margin-bottom:30px;">
+            <input type="password" id="key" placeholder="🔒 LİSANS ANAHTARI" style="width: 50%;">
         </div>
-    </div>
 
-    <h1>YAEL SYSTEM</h1>
-    <div class="container" id="main-panel">
-        <div style="display:flex; gap:10px;">
-            <input type="text" id="link" placeholder="MEGA LINKINI BURAYA YAPISTIR...">
-            <button onclick="sendJob()">BAŞLAT</button>
+        <div class="input-group">
+            <input type="text" id="link" placeholder="Mega.nz Linkini Yapıştır...">
+            <button onclick="send()">BAŞLAT 🚀</button>
         </div>
+        
         <div id="list"></div>
         
-        <br>
-        <button onclick="resetSystem()" class="reset-btn">⚠️ SİSTEMİ SIFIRLA / RESET</button>
+        <button onclick="reset()" style="background:transparent; border:1px solid #333; color:#444; font-size:0.8rem; margin-top:50px; padding:10px;">TEMİZLE</button>
     </div>
 
     <script>
-        // --- GİRİŞ SİSTEMİ ---
-        let USER_KEY = localStorage.getItem("YAEL_KEY");
+        // Basit localStorage kullanımı (Şifreyi hatırla)
+        if(localStorage.getItem('yael_key')) document.getElementById('key').value = localStorage.getItem('yael_key');
 
-        function login() {
-            let key = document.getElementById('license-input').value;
-            if(!key) return;
+        function send() {
+            var k = document.getElementById('key').value;
+            var l = document.getElementById('link').value;
+            if(!k) return alert("Lisans anahtarı gir!");
             
-            // Basit bir ön kontrol, asıl kontrol sunucuda
-            USER_KEY = key;
-            localStorage.setItem("YAEL_KEY", key);
-            checkAccess();
-        }
+            localStorage.setItem('yael_key', k); // Kaydet
 
-        function checkAccess() {
-            if(USER_KEY) {
-                document.getElementById('login-overlay').style.display = 'none';
-                document.getElementById('main-panel').classList.add('unlocked');
-                loadList(); // Listeyi yüklemeye başla
-            }
+            fetch('/add', {method:'POST', headers:{'Content-Type':'application/json', 'X-License-Key':k}, body:JSON.stringify({link:l})})
+            .then(r=>r.json()).then(d=>{ 
+                if(d.error) alert(d.msg); 
+                else { load(); document.getElementById('link').value=''; }
+            });
         }
         
-        // Sayfa açılınca kayıtlı şifre varsa direkt aç
-        if(USER_KEY) checkAccess();
-
-        // --- BUTON FONKSİYONLARI ---
-        async function sendJob() {
-            let l = document.getElementById('link').value;
-            if(!l) return alert("Link boş!");
-
-            try {
-                let r = await fetch('/add', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-License-Key': USER_KEY // Şifreyi gönder
-                    },
-                    body: JSON.stringify({link: l})
-                });
-                let d = await r.json();
-                
-                if(r.status === 403) {
-                    alert("GİRİŞ BAŞARISIZ: " + d.msg);
-                    logout(); // Şifre yanlışsa at
-                } else {
-                    alert(d.msg);
-                    document.getElementById('link').value = '';
-                    loadList();
-                }
-            } catch(e) {
-                alert("HATA OLUŞTU: " + e);
+        function reset() {
+            var k = document.getElementById('key').value;
+            if(confirm("Tüm liste silinsin mi?")) {
+                fetch('/reset', {headers:{'X-License-Key':k}}).then(()=>load());
             }
         }
 
-        async function resetSystem() {
-            if(!confirm("TÜM KUYRUK SİLİNSİN Mİ?")) return;
-            
-            try {
-                let r = await fetch('/reset', {
-                    method: 'GET',
-                    headers: { 'X-License-Key': USER_KEY }
-                });
-                let d = await r.json();
-                alert(d.msg);
-                loadList();
-            } catch(e) {
-                alert("Reset Hatası: " + e);
-            }
-        }
-
-        function logout() {
-            localStorage.removeItem("YAEL_KEY");
-            location.reload();
-        }
-
-        function loadList() {
+        function load() {
             fetch('/list').then(r=>r.json()).then(d=>{
-                let h = "";
+                var h = "";
                 d.forEach(i=>{
-                    let status = i.status;
-                    let action = "";
+                    let cardClass = '';
+                    let progressHtml = '';
+                    let statusHtml = '';
                     
-                    if(status === 'TAMAMLANDI') {
-                        action = `<span class="completed"><a href="${i.gofile}" target="_blank">LİSTEYİ İNDİR</a></span>`;
-                    } else if(status.startsWith('HATA')) {
-                        action = `<span style="color:red">${status}</span>`;
+                    if(i.status === 'SIRADA') {
+                        cardClass = '';
+                        statusHtml = `<span class="status-text">BEKLİYOR...</span><span>Sıra No: 1</span>`;
+                        progressHtml = `<div class="progress-bg"><div class="progress-bar" style="width: 5%"></div></div>`;
+                    } else if(i.status === 'TAMAMLANDI') {
+                        cardClass = 'completed';
+                        statusHtml = `<span style="color:#00ff9d">✅ İŞLEM BİTTİ</span><span>%100</span>`;
+                        progressHtml = `<a href="/teslimat/${i.delivery_id}" target="_blank" class="btn-download">📂 DOSYALARI AÇ</a>`;
+                    } else if(i.status.startsWith('HATA')) {
+                        cardClass = 'error';
+                        statusHtml = `<span style="color:#ff0055">⚠️ ${i.status}</span>`;
                     } else {
-                        action = `<span style="color:orange">${status}</span>`;
+                        // İşleniyor Durumu (Yüzdeyi tahmin etmeye çalışırız veya sabit animasyon)
+                        cardClass = 'active';
+                        // Mesajdan yüzdeyi anlamaya çalış (Opsiyonel, şimdilik animasyonlu bar)
+                        statusHtml = `<span class="status-text">${i.status}</span><span>İŞLENİYOR</span>`;
+                        progressHtml = `<div class="progress-bg"><div class="progress-bar striped" style="width: 60%"></div></div>`;
                     }
 
-                    h += `<div class="card">
-                            <div style="font-size:0.8rem; overflow:hidden; width:60%;">${i.link}</div>
-                            <div>${action}</div>
-                          </div>`;
+                    h += `
+                    <div class="card ${cardClass}">
+                        <div class="job-link">${i.link}</div>
+                        <div class="status-row">${statusHtml}</div>
+                        ${progressHtml}
+                    </div>`;
                 });
                 document.getElementById('list').innerHTML = h;
             });
         }
-        
-        // Otomatik yenile
-        setInterval(() => {
-            if(document.getElementById('main-panel').classList.contains('unlocked')){
-                loadList();
-            }
-        }, 3000);
+        setInterval(load, 2000);
+        load();
     </script>
 </body>
 </html>
 """
 
 @app.route('/')
-def home(): return render_template_string(HTML)
+def home(): return render_template_string(HTML_HOME)
 
-# --- KORUMALI ROTALAR ---
+@app.route('/teslimat/<id>')
+def show_delivery(id):
+    data = deliveries.find_one({"id": id})
+    if data: return render_template_string(data['html'])
+    return "TESLİMAT BULUNAMADI.", 404
+
+# API ROUTES (Öncekilerin aynısı, sadece güvenlik eklendi)
 @app.route('/add', methods=['POST'])
-@require_license # <-- BU ARTIK ŞİFRE İSTER
+@require_license
 def add():
     link = request.json.get('link')
     if not link: return jsonify({"msg": "Link yok"})
-    
-    # Kuyruğa ekle
-    queue.insert_one({
-        "link": link, 
-        "status": "SIRADA", 
-        "gofile": None, 
-        "date": str(datetime.datetime.now())
-    })
-    return jsonify({"msg": "Sıraya Alındı!"})
+    queue.insert_one({"link": link, "status": "SIRADA", "delivery_id": None, "date": str(datetime.datetime.now())})
+    return jsonify({"msg": "Sıraya Alındı"})
 
-@app.route('/reset')
-@require_license # <-- BU ARTIK ŞİFRE İSTER
-def reset():
-    queue.delete_many({})
-    return jsonify({"msg": "Sistem Temizlendi!"})
-
-# --- AÇIK ROTALAR (İşçi ve Liste için) ---
 @app.route('/list')
 def list_jobs():
-    # Liste herkese görünebilir ama işlem yapılamaz
     return jsonify(list(queue.find({}, {'_id':0}).sort("_id", -1).limit(10)))
+
+@app.route('/api/get_job')
+def get_job():
+    job = queue.find_one({"status": "SIRADA"})
+    if job:
+        queue.update_one({"link": job['link']}, {"$set": {"status": "BAŞLATILIYOR..."}})
+        return jsonify({"found": True, "link": job['link']})
+    return jsonify({"found": False})
 
 @app.route('/api/update_status', methods=['POST'])
 def update_status():
@@ -254,20 +214,23 @@ def update_status():
     queue.update_one({"link": d['link']}, {"$set": {"status": d['status']}})
     return jsonify({"status": "ok"})
 
-@app.route('/api/get_job')
-def get_job():
-    job = queue.find_one({"status": "SIRADA"})
-    if job:
-        queue.update_one({"link": job['link']}, {"$set": {"status": "ISLENIYOR"}})
-        return jsonify({"found": True, "link": job['link']})
-    return jsonify({"found": False})
-
 @app.route('/api/done', methods=['POST'])
 def done():
     d = request.json
-    status = "TAMAMLANDI" if d['url'] and "http" in d['url'] else "HATA"
-    queue.update_one({"link": d['link']}, {"$set": {"status": status, "gofile": d['url']}})
+    link = d['link']
+    if "html_content" in d:
+        delivery_id = str(uuid.uuid4())[:8]
+        deliveries.insert_one({"id": delivery_id, "html": d['html_content'], "date": datetime.datetime.now()})
+        queue.update_one({"link": link}, {"$set": {"status": "TAMAMLANDI", "delivery_id": delivery_id}})
+    else:
+        queue.update_one({"link": link}, {"$set": {"status": d.get('url', 'HATA')}})
     return jsonify({"status": "ok"})
+
+@app.route('/reset')
+@require_license
+def reset():
+    queue.delete_many({})
+    return jsonify({"msg": "Temizlendi"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
