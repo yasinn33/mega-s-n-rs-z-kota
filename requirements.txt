@@ -3,5 +3,6 @@ pymongo
 dnspython
 gunicorn
 requests
-mega.py
 certifi
+moment-timezone
+uuid
