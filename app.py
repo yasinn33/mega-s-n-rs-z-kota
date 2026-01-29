@@ -21,7 +21,7 @@ deliveries_col = db['deliveries']
 def get_tr_time():
     return (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
 
-# --- CSS STYLES (ORTAK TASARIM DİLİ) ---
+# --- CSS STYLES (CYBERPUNK) ---
 SHARED_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap');
@@ -45,7 +45,6 @@ SHARED_CSS = """
         justify-content: center;
     }
     
-    /* Hareketli Arka Plan Işığı */
     body::before {
         content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: radial-gradient(circle at 50% 50%, rgba(0, 243, 255, 0.05), transparent 70%);
@@ -67,7 +66,6 @@ SHARED_CSS = """
         overflow: hidden;
     }
     
-    /* Neon Çizgi Animasyonu */
     .container::after {
         content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
         background: linear-gradient(90deg, transparent, var(--main), transparent);
@@ -101,7 +99,6 @@ SHARED_CSS = """
     @keyframes scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
     @keyframes pulseBg { 0% { opacity: 0.5; } 100% { opacity: 1; } }
     
-    /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #000; }
     ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
@@ -146,7 +143,7 @@ HTML_LOGIN = f"""
         <div id="msg" style="margin-top:15px; color:red; font-family:'Share Tech Mono'"></div>
     </div>
 <script>
-function go(){
+function go(){{
     let btn = document.querySelector('button');
     btn.innerText = "BAĞLANIYOR...";
     let hwid = localStorage.getItem('hwid') || crypto.randomUUID(); localStorage.setItem('hwid',hwid);
@@ -155,11 +152,11 @@ function go(){
         if(d.ok){{ localStorage.setItem('ukey', document.getElementById('k').value); window.location.href='/panel'; }}
         else {{ document.getElementById('msg').innerText = "ERİŞİM REDDEDİLDİ: " + d.msg; btn.innerText = "SİSTEME BAĞLAN"; }}
     }});
-}
+}}
 </script></body></html>
 """
 
-# --- HTML: PANEL (ASIL ŞOV BURADA) ---
+# --- HTML: PANEL ---
 HTML_PANEL = f"""
 <!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>KONTROL PANELİ</title>
 {SHARED_CSS}
@@ -227,7 +224,7 @@ HTML_PANEL = f"""
 const k = localStorage.getItem('ukey'); if(!k) location.href='/login';
 document.getElementById('uid').innerText = k.substring(0,8) + '****';
 
-function load(){
+function load(){{
     fetch('/api/data', {{headers:{{'X-Key':k}}}}).then(r=>r.json()).then(d=>{{
         if(d.err) return location.href='/login';
         
@@ -268,7 +265,7 @@ function load(){
         }});
         document.getElementById('jobs').innerHTML = h || '<div style="color:#444; padding:20px;">HENÜZ BİR İŞLEM YOK...</div>';
     }});
-}
+}}
 
 function add(){{
     let l = document.getElementById('link').value;
@@ -293,7 +290,7 @@ load();
 </script></body></html>
 """
 
-# --- HTML: ADMIN (BASİT TUTTUM, SADECE İŞLEVSEL OLSUN) ---
+# --- HTML: ADMIN ---
 HTML_ADMIN = f"""
 <!DOCTYPE html><html><head><title>ADMIN CORE</title>{SHARED_CSS}<style>table{{width:100%; border-collapse:collapse; margin-top:20px;}} th,td{{border:1px solid #333; padding:10px; text-align:left; color:#ccc;}} th{{color:var(--main);}}</style></head>
 <body>
@@ -327,7 +324,7 @@ load();
 </script></body></html>
 """
 
-# --- FLASK ROUTES (MANTIK DEĞİŞMEDİ, SADECE HTML'LER GÜNCELLENDİ) ---
+# --- FLASK ROUTES ---
 @app.route('/')
 def r1(): return render_template_string(HTML_LANDING)
 @app.route('/login')
@@ -339,13 +336,12 @@ def r4(): return render_template_string(HTML_ADMIN)
 @app.route('/teslimat/<id>')
 def r5(id):
     d = deliveries_col.find_one({"id": id})
-    # Teslimat sayfasını da CSS'e uyduralım
     if d:
-        clean_html = d['html'].replace("background:#050505;", "").replace("</body>", "</body>") # Eski stili temizle
+        clean_html = d['html'].replace("background:#050505;", "").replace("</body>", "</body>")
         return render_template_string(SHARED_CSS + clean_html) 
     return "Bulunamadı"
 
-# --- API (AYNI KODLAR) ---
+# --- API ---
 @app.route('/api/login', methods=['POST'])
 def api_login():
     d=request.json; u=users_col.find_one({"key":d['key']})
@@ -375,7 +371,7 @@ def api_stop():
     jobs_col.update_one({"job_id":request.json.get('jid')},{"$set":{"status":"DURDURULUYOR...","stop_requested":True}})
     return jsonify({"ok":True})
 
-# WORKER & ADMIN API'LERI (AYNI)
+# WORKER & ADMIN API
 @app.route('/api/worker/get')
 def w_get():
     j=jobs_col.find_one({"status":"SIRADA"})
@@ -422,4 +418,6 @@ def adm_ban():
     return jsonify({"ok":True})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # RENDER İÇİN OTOMATİK PORT AYARI
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
