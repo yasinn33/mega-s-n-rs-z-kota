@@ -4,5 +4,4 @@ dnspython
 gunicorn
 requests
 certifi
-moment-timezone
-uuid
+pytz
