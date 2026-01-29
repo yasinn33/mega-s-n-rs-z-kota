@@ -1,229 +1,308 @@
 import certifi
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, make_response
 from pymongo import MongoClient
 from functools import wraps
 import os
 import datetime
 import uuid
+import random
+import string
 
 app = Flask(__name__)
 
 # --- AYARLAR ---
-LICENSE_KEY = "YAEL2026" 
+ADMIN_PASSWORD = "Ata_Yasin5353"  # Admin paneli giriş şifresi
 MONGO_URI = os.environ.get("MONGO_URI") 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['mega_leech']
-queue = db['queue']
-deliveries = db['deliveries']
+users_col = db['users']       
+jobs_col = db['jobs']         
+deliveries_col = db['deliveries'] 
 
-# --- YARDIMCI: TR SAATİ ---
 def get_tr_time():
-    # Sunucu saati (UTC) + 3 Saat = Türkiye Saati
-    tr_now = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
-    return tr_now.strftime("%d.%m.%Y %H:%M:%S")
+    return (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
 
-# --- GÜVENLİK ---
-def require_license(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        key = request.headers.get('X-License-Key')
-        if not key or key != LICENSE_KEY:
-            return jsonify({"msg": "🚫 GEÇERSİZ LİSANS!", "error": True}), 403
-        return f(*args, **kwargs)
-    return decorated_function
-
-# --- HTML (MATRIX & LOGIN & SOCIAL) ---
-HTML_HOME = """
+# --- HTML: LANDING PAGE (YABANCILAR İÇİN) ---
+HTML_LANDING = """
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YAEL /// CLOUD CONTROL</title>
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root { --neon: #00f3ff; --bg: #020202; --panel: #0a0a0a; --danger: #ff0055; --success: #00ff9d; }
-        body { background-color: var(--bg); color: var(--neon); font-family: 'Rajdhani', sans-serif; margin: 0; padding: 0; overflow-x: hidden; }
-        
-        #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; background: black; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; }
-        .login-box { text-align: center; border: 2px solid var(--neon); padding: 40px; border-radius: 10px; box-shadow: 0 0 50px rgba(0, 243, 255, 0.1); }
-        .main-container { padding: 20px; max-width: 800px; margin: 0 auto; display: none; opacity: 0; transition: opacity 1s; }
-        h1 { font-size: 3rem; text-shadow: 0 0 20px var(--neon); margin: 10px 0; text-align: center; }
-        .subtitle { color: #666; text-align: center; margin-bottom: 30px; letter-spacing: 3px; }
-        input { padding: 15px; background: rgba(255,255,255,0.05); border: 1px solid #333; color: white; font-family: 'Share Tech Mono', monospace; font-size: 1.1rem; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
-        button { flex: 1; padding: 15px; font-weight: 800; font-size: 1rem; border: none; cursor: pointer; border-radius: 4px; transition: 0.3s; }
-        .btn-start { background: var(--neon); color: black; box-shadow: 0 0 15px var(--neon); }
-        .btn-stop { background: var(--danger); color: white; box-shadow: 0 0 15px var(--danger); }
-        .btn-reset { background: #333; color: #aaa; margin-top: 30px; width: 100%; }
-        .card { background: var(--panel); border: 1px solid #222; margin-top: 20px; padding: 20px; border-left: 4px solid #333; position: relative; animation: slideIn 0.5s ease; }
-        .card.active { border-left-color: var(--neon); }
-        .card.completed { border-left-color: var(--success); }
-        .card.error { border-left-color: var(--danger); }
-        .matrix-logs { background: #000; color: #00ff00; font-family: 'Share Tech Mono', monospace; font-size: 0.8rem; padding: 10px; height: 100px; overflow: hidden; border: 1px solid #222; margin-top: 10px; opacity: 0.8; border-left: 2px solid #00ff00; }
-        .log-line { white-space: nowrap; overflow: hidden; animation: type 0.5s steps(40, end); }
-        .social-icons { display: flex; justify-content: center; gap: 20px; margin-top: 40px; }
-        .social-btn { color: #888; font-size: 1.5rem; transition: 0.3s; text-decoration: none; display: flex; align-items: center; gap: 10px; }
-        .social-btn:hover { color: var(--neon); transform: scale(1.1); text-shadow: 0 0 10px var(--neon); }
-        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YAEL CODE /// SYSTEMS</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<style>
+body{background:#020202;color:white;font-family:'Rajdhani',sans-serif;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center}
+h1{font-size:4rem;margin:0;color:#00f3ff;text-shadow:0 0 20px #00f3ff;letter-spacing:5px}
+p{color:#888;font-size:1.2rem;letter-spacing:2px}
+.btn{padding:15px 40px;background:transparent;border:2px solid #00f3ff;color:#00f3ff;font-size:1.2rem;font-weight:bold;cursor:pointer;margin-top:30px;transition:0.3s;text-decoration:none;display:inline-block}
+.btn:hover{background:#00f3ff;color:black;box-shadow:0 0 30px #00f3ff}
+.footer{position:absolute;bottom:20px;color:#444;font-size:0.9rem}
+.social{margin-top:20px}
+.social a{color:#fff;margin:0 10px;text-decoration:none;font-size:1.1rem}
+</style>
 </head>
 <body>
-    <div id="login-overlay">
-        <div class="login-box">
-            <h2 style="margin-top:0">SECURE GATEWAY</h2>
-            <input type="password" id="login-key" placeholder="ACCESS KEY..." style="margin-bottom: 20px;">
-            <button onclick="login()" class="btn-start">SİSTEME GİRİŞ</button>
-        </div>
+    <h1>YAEL CODE</h1>
+    <p>PROFESSIONAL CLOUD SOLUTIONS</p>
+    <div style="margin:40px 0;border-top:1px solid #333;border-bottom:1px solid #333;padding:20px;width:60%">
+        Bu sistem özel bir bulut transfer yazılımıdır. <br>
+        Erişim sadece lisanslı kullanıcılara açıktır.
     </div>
-    <div class="main-container" id="dashboard">
-        <h1>YAEL CLOUD</h1>
-        <div class="subtitle">/// ULTIMATE MEGA TRANSFER</div>
-        <input type="text" id="link" placeholder="MEGA LINKINI YAPIŞTIR...">
-        <div class="btn-group">
-            <button onclick="send()" class="btn-start">BAŞLAT 🚀</button>
-            <button onclick="stopJob()" class="btn-stop">DURDUR ⛔</button>
-        </div>
-        <div id="list"></div>
-        <button onclick="reset()" class="btn-reset">⚠️ GEÇMİŞİ TEMİZLE</button>
-        <div class="social-icons">
-            <a href="https://t.me/yasin33" target="_blank" class="social-btn"><i class="fab fa-telegram"></i> @yasin33</a>
-            <a href="https://instagram.com/mysthraw" target="_blank" class="social-btn"><i class="fab fa-instagram"></i> @mysthraw</a>
-        </div>
+    <a href="/login" class="btn">MÜŞTERİ GİRİŞİ</a>
+    
+    <div class="social">
+        <p>Lisans Satın Almak İçin:</p>
+        <a href="https://t.me/yasin33" target="_blank">✈️ Telegram: @yasin33</a>
+        <a href="https://instagram.com/mysthraw" target="_blank">📸 Insta: @mysthraw</a>
     </div>
-    <script>
-        function login() {
-            let k = document.getElementById('login-key').value;
-            if(k === "YAEL2026") { localStorage.setItem('yael_key', k); showDashboard(); } 
-            else { alert("HATALI ANAHTAR!"); }
-        }
-        function showDashboard() {
-            document.getElementById('login-overlay').style.opacity = '0';
-            setTimeout(() => {
-                document.getElementById('login-overlay').style.display = 'none';
-                let dash = document.getElementById('dashboard');
-                dash.style.display = 'block';
-                setTimeout(() => dash.style.opacity = '1', 100);
-            }, 500);
-            load();
-        }
-        if(localStorage.getItem('yael_key') === "YAEL2026") showDashboard();
-        function send() {
-            var k = localStorage.getItem('yael_key');
-            var l = document.getElementById('link').value;
-            fetch('/add', {method:'POST', headers:{'Content-Type':'application/json', 'X-License-Key':k}, body:JSON.stringify({link:l})})
-            .then(r=>r.json()).then(d=>{ alert(d.msg); load(); });
-        }
-        function stopJob() {
-            var k = localStorage.getItem('yael_key');
-            if(confirm("Durdurmak istiyor musun?")) {
-                fetch('/stop', {headers:{'X-License-Key':k}}).then(r=>r.json()).then(d=>{ alert(d.msg); load(); });
-            }
-        }
-        function reset() {
-            var k = localStorage.getItem('yael_key');
-            if(confirm("Tüm kayıtlar silinecek!")) {
-                fetch('/reset', {headers:{'X-License-Key':k}}).then(r=>r.json()).then(d=>{ load(); });
-            }
-        }
-        const fakeLogs = ["Bypassing Mega encryption...", "Allocating AWS-S3 bucket...", "Checking hash integrity...", "Optimizing TCP streams..."];
-        function load() {
-            fetch('/list').then(r=>r.json()).then(d=>{
-                var h = "";
-                d.forEach(i=>{
-                    let statusHtml = '';
-                    let extraHtml = '';
-                    if(i.status === 'TAMAMLANDI') {
-                        statusHtml = `<span style="color:#00ff9d">✅ İŞLEM TAMAMLANDI</span>`;
-                        extraHtml = `<a href="/teslimat/${i.delivery_id}" target="_blank" style="display:block; background:#00ff9d; color:black; padding:10px; text-align:center; text-decoration:none; font-weight:bold; margin-top:10px;">📂 DOSYALARI AÇ</a>`;
-                    } else if(i.status.startsWith('HATA') || i.status.includes('DURDUR')) {
-                        statusHtml = `<span style="color:#ff0055">⚠️ ${i.status}</span>`;
-                    } else if(i.status === 'SIRADA') {
-                         statusHtml = `<span style="color:#aaa">⏳ KUYRUKTA</span>`;
-                    } else {
-                        statusHtml = `<span style="color:#00f3ff">⚙️ VERİ İŞLENİYOR</span>`;
-                        extraHtml = `<div class="matrix-logs"><div class="log-line">> ${fakeLogs[Math.floor(Math.random()*fakeLogs.length)]}</div></div>`;
-                    }
-                    h += `<div class="card ${i.status === 'ISLENIYOR' ? 'active' : ''}">
-                        <div style="font-size:0.8rem; color:#888;">${i.date} (TR)</div>
-                        <div style="font-weight:bold; overflow:hidden; text-overflow:ellipsis;">${i.link}</div>
-                        <div style="margin-top:10px;">${statusHtml}</div>
-                        ${extraHtml}
-                    </div>`;
-                });
-                document.getElementById('list').innerHTML = h;
-            });
-        }
-        setInterval(load, 3000);
-    </script>
-</body>
-</html>
+    <div class="footer">© 2026 YAEL CODE SYSTEMS. Tüm Hakları Saklıdır.</div>
+</body></html>
 """
 
+# --- HTML: LOGIN & PANEL (MÜŞTERİ İÇİN) ---
+HTML_LOGIN = """
+<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>GİRİŞ</title>
+<style>body{background:#000;color:#0f0;display:flex;justify-content:center;align-items:center;height:100vh;font-family:monospace}
+input{padding:10px;background:#111;border:1px solid #0f0;color:#fff;text-align:center} button{padding:10px;background:#0f0;border:none;cursor:pointer}</style>
+</head><body><div style="text-align:center"><h2>YAEL SECURE LOGIN</h2>
+<input type="password" id="k" placeholder="LİSANS ANAHTARI"><br><br><button onclick="go()">SİSTEME BAĞLAN</button></div>
+<script>
+function go(){
+    // Cihaz Parmak İzi (Basit UUID)
+    let hwid = localStorage.getItem('yael_hwid');
+    if(!hwid) { hwid = crypto.randomUUID(); localStorage.setItem('yael_hwid', hwid); }
+    
+    fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:document.getElementById('k').value, hwid:hwid})})
+    .then(r=>r.json()).then(d=>{
+        if(d.ok){ localStorage.setItem('user_key', document.getElementById('k').value); window.location.href='/panel'; }
+        else alert(d.msg);
+    });
+}
+</script></body></html>
+"""
+
+HTML_PANEL = """
+<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>PANEL</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600&display=swap" rel="stylesheet">
+<style>
+body{background:#050505;color:white;font-family:'Rajdhani',sans-serif;padding:20px;max-width:800px;margin:0 auto}
+.head{display:flex;justify-content:space-between;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:20px}
+.bar{background:#222;height:10px;border-radius:5px;width:200px;overflow:hidden}.fill{height:100%;background:#00f3ff;width:0%}
+input{width:70%;padding:15px;background:#111;border:1px solid #444;color:white}
+button{padding:15px;background:#00f3ff;border:none;cursor:pointer;font-weight:bold}
+.card{background:#111;padding:15px;margin-top:10px;border-left:4px solid #333}
+.s-ISLENIYOR{border-color:#00f3ff} .s-TAMAMLANDI{border-color:#00ff9d} .s-HATA{border-color:#ff0055}
+</style></head><body>
+<div class="head">
+    <div><h1>YAEL CLOUD</h1><small id="uid">...</small></div>
+    <div style="text-align:right">KOTA: <span id="used">0</span>/<span id="limit">0</span> GB<div class="bar"><div id="fill" class="fill"></div></div></div>
+</div>
+<div><input id="link" placeholder="MEGA LINK..."><button onclick="add()">BAŞLAT</button></div>
+<div id="jobs"></div>
+<script>
+const key = localStorage.getItem('user_key');
+if(!key) window.location.href='/login';
+document.getElementById('uid').innerText = key;
+
+function load(){
+    fetch('/api/data', {headers:{'X-Key':key}}).then(r=>r.json()).then(d=>{
+        if(d.err) { alert(d.msg); window.location.href='/login'; return; }
+        document.getElementById('used').innerText = d.used.toFixed(2);
+        document.getElementById('limit').innerText = d.limit;
+        document.getElementById('fill').style.width = (d.used/d.limit)*100 + '%';
+        
+        let h = "";
+        d.jobs.forEach(j=>{
+            let extra = j.status==='ISLENIYOR' ? `<br><small style="color:#00f3ff">${j.log || '...'}</small> <button onclick="stop('${j.id}')" style="padding:5px;background:red;color:white;float:right">DURDUR</button>` : '';
+            if(j.status==='TAMAMLANDI') extra = `<br><a href="/teslimat/${j.did}" target="_blank" style="color:#00ff9d">📂 İNDİR</a>`;
+            h += `<div class="card s-${j.status}"><b>${j.status}</b> - ${j.date}${extra}<br><small>${j.link}</small></div>`;
+        });
+        document.getElementById('jobs').innerHTML = h;
+    });
+}
+function add(){
+    fetch('/api/add', {method:'POST', headers:{'X-Key':key, 'Content-Type':'application/json'}, body:JSON.stringify({link:document.getElementById('link').value})})
+    .then(r=>r.json()).then(d=>{ alert(d.msg); load(); });
+}
+function stop(jid){
+    if(confirm("Durdurulsun mu?")) fetch('/api/stop_job', {method:'POST', headers:{'X-Key':key, 'Content-Type':'application/json'}, body:JSON.stringify({jid:jid})}).then(()=>load());
+}
+setInterval(load, 2000); load();
+</script></body></html>
+"""
+
+# --- HTML: ADMIN PANELİ ---
+HTML_ADMIN = """
+<!DOCTYPE html><html><head><title>YAEL ADMIN</title>
+<style>body{background:#222;color:#fff;font-family:sans-serif;padding:20px} table{width:100%;border-collapse:collapse} th,td{border:1px solid #444;padding:8px;text-align:left} button{cursor:pointer}</style>
+</head><body>
+<h1>👑 YAEL ADMIN PANEL</h1>
+<div style="background:#333;padding:10px;margin-bottom:20px">
+    <h3>YENİ LİSANS OLUŞTUR</h3>
+    Limit (GB): <input id="limit" type="number" value="10">
+    <button onclick="create()">OLUŞTUR</button>
+</div>
+<h3>KULLANICILAR</h3>
+<table id="users"></table>
+<script>
+const pwd = prompt("Admin Şifresi:");
+function load(){
+    fetch('/api/admin/users?pwd='+pwd).then(r=>r.json()).then(d=>{
+        if(d.err) return alert("Yanlış Şifre");
+        let h = "<tr><th>Key</th><th>Limit</th><th>Kullanılan</th><th>Cihaz ID</th><th>Durum</th><th>İşlem</th></tr>";
+        d.users.forEach(u=>{
+            let status = u.banned ? '<span style="color:red">BANLI</span>' : '<span style="color:#0f0">AKTİF</span>';
+            let btn = u.banned ? `<button onclick="toggle('${u.key}', false)">AÇ</button>` : `<button onclick="toggle('${u.key}', true)">BANLA</button>`;
+            h += `<tr><td>${u.key}</td><td>${u.limit_gb}</td><td>${u.used_gb.toFixed(2)}</td><td>${u.hwid || '-'}</td><td>${status}</td><td>${btn}</td></tr>`;
+        });
+        document.getElementById('users').innerHTML = h;
+    });
+}
+function create(){
+    let l = document.getElementById('limit').value;
+    fetch('/api/admin/create?pwd='+pwd+'&limit='+l).then(r=>r.json()).then(d=>{ prompt("Kopyala:", d.key); load(); });
+}
+function toggle(k, state){
+    fetch('/api/admin/ban', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pwd:pwd, key:k, ban:state})}).then(()=>load());
+}
+load();
+</script></body></html>
+"""
+
+# --- ROUTES ---
 @app.route('/')
-def home(): return render_template_string(HTML_HOME)
+def index(): return render_template_string(HTML_LANDING)
+
+@app.route('/login')
+def login_page(): return render_template_string(HTML_LOGIN)
+
+@app.route('/panel')
+def panel_page(): return render_template_string(HTML_PANEL)
+
+@app.route('/admin')
+def admin_page(): return render_template_string(HTML_ADMIN)
 
 @app.route('/teslimat/<id>')
-def show_delivery(id):
-    data = deliveries.find_one({"id": id})
-    if data: return render_template_string(data['html'])
-    return "<h1>404 - TESLİMAT BULUNAMADI</h1>", 404
+def delivery(id):
+    d = deliveries_col.find_one({"id": id})
+    if d: return render_template_string(d['html'])
+    return "Bulunamadı", 404
 
-# API ROUTES
-@app.route('/add', methods=['POST'])
-@require_license
-def add():
+# --- API ---
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    d = request.json
+    k = d.get('key')
+    hwid = d.get('hwid') # Tarayıcıdan gelen cihaz kimliği
+    
+    user = users_col.find_one({"key": k})
+    if not user: return jsonify({"ok": False, "msg": "Geçersiz Anahtar"})
+    if user.get('banned'): return jsonify({"ok": False, "msg": "BU HESAP YÖNETİCİ TARAFINDAN ENGELLENDİ!"})
+    
+    # CİHAZ KİLİDİ KONTROLÜ
+    if user.get('hwid'):
+        if user['hwid'] != hwid:
+            return jsonify({"ok": False, "msg": "⚠️ GÜVENLİK UYARISI: Bu anahtar başka bir cihazda kullanılıyor! Erişim reddedildi."})
+    else:
+        # İlk giriş: Cihazı kilitle
+        users_col.update_one({"key": k}, {"$set": {"hwid": hwid}})
+        
+    return jsonify({"ok": True})
+
+@app.route('/api/data')
+def api_data():
+    k = request.headers.get('X-Key')
+    user = users_col.find_one({"key": k})
+    if not user or user.get('banned'): return jsonify({"err": True, "msg": "Oturum Kapalı"})
+    
+    jobs = list(jobs_col.find({"user_key": k}, {'_id':0}).sort("_id", -1).limit(10))
+    return jsonify({
+        "limit": user['limit_gb'],
+        "used": user['used_gb'],
+        "jobs": [{"id": j['job_id'], "status": j['status'], "link": j['link'], "date": j['date'], "log": j.get('progress_log'), "did": j.get('delivery_id')} for j in jobs]
+    })
+
+@app.route('/api/add', methods=['POST'])
+def api_add():
+    k = request.headers.get('X-Key')
     link = request.json.get('link')
-    if not link: return jsonify({"msg": "Link yok"})
-    # BURADA TR SAATİ KULLANIYORUZ
-    queue.insert_one({"link": link, "status": "SIRADA", "delivery_id": None, "date": get_tr_time()})
-    return jsonify({"msg": "Sıraya Alındı"})
+    user = users_col.find_one({"key": k})
+    if not user: return jsonify({"msg": "Hata"})
+    if user['used_gb'] >= user['limit_gb']: return jsonify({"msg": "Kota Dolu!"})
+    
+    job_id = str(uuid.uuid4())[:8]
+    jobs_col.insert_one({"job_id": job_id, "user_key": k, "link": link, "status": "SIRADA", "date": get_tr_time(), "stop_requested": False})
+    return jsonify({"msg": "Başlatıldı"})
 
-@app.route('/stop', methods=['GET'])
-@require_license
-def stop_job():
-    queue.update_many({"status": {"$in": ["SIRADA", "ISLENIYOR"]}}, {"$set": {"status": "DURDURULDU"}})
-    return jsonify({"msg": "Durduruldu."})
-
-@app.route('/reset', methods=['GET'])
-@require_license
-def reset():
-    queue.delete_many({}) 
-    deliveries.delete_many({})
-    return jsonify({"msg": "Temizlendi."})
-
-@app.route('/list')
-def list_jobs():
-    return jsonify(list(queue.find({}, {'_id':0}).sort("_id", -1).limit(5)))
-
-@app.route('/api/get_job')
-def get_job():
-    job = queue.find_one({"status": "SIRADA"})
+@app.route('/api/stop_job', methods=['POST'])
+def api_stop():
+    k = request.headers.get('X-Key')
+    jid = request.json.get('jid')
+    # Sadece kendi işini durdurabilir
+    job = jobs_col.find_one({"job_id": jid, "user_key": k})
     if job:
-        queue.update_one({"link": job['link']}, {"$set": {"status": "ISLENIYOR"}})
-        return jsonify({"found": True, "link": job['link']})
+        # Worker'a dur emri vermek için flag koyuyoruz
+        jobs_col.update_one({"job_id": jid}, {"$set": {"status": "DURDURULUYOR...", "stop_requested": True}})
+    return jsonify({"msg": "ok"})
+
+# --- WORKER API ---
+@app.route('/api/worker/get')
+def worker_get():
+    job = jobs_col.find_one({"status": "SIRADA"})
+    if job:
+        jobs_col.update_one({"job_id": job['job_id']}, {"$set": {"status": "ISLENIYOR"}})
+        return jsonify({"found": True, "job": job['job_id'], "link": job['link']})
     return jsonify({"found": False})
 
-@app.route('/api/update_status', methods=['POST'])
-def update_status():
+@app.route('/api/worker/update', methods=['POST'])
+def worker_update():
     d = request.json
-    current = queue.find_one({"link": d['link']})
-    if current and "DURDURULDU" in current['status']: return jsonify({"status": "stopped"})
-    queue.update_one({"link": d['link']}, {"$set": {"status": d['status']}})
-    return jsonify({"status": "ok"})
+    jid = d['id']
+    msg = d['msg']
+    
+    # Durdurma emri var mı kontrol et
+    job = jobs_col.find_one({"job_id": jid})
+    if job and job.get('stop_requested'):
+        return jsonify({"stop": True}) # Worker'a "Öl" emri
+        
+    jobs_col.update_one({"job_id": jid}, {"$set": {"progress_log": msg}})
+    return jsonify({"stop": False})
 
-@app.route('/api/done', methods=['POST'])
-def done():
+@app.route('/api/worker/done', methods=['POST'])
+def worker_done():
     d = request.json
-    link = d['link']
-    if "html_content" in d:
-        delivery_id = str(uuid.uuid4())[:8]
-        deliveries.insert_one({"id": delivery_id, "html": d['html_content'], "date": get_tr_time()})
-        queue.update_one({"link": link}, {"$set": {"status": "TAMAMLANDI", "delivery_id": delivery_id}})
+    jid = d['id']
+    job = jobs_col.find_one({"job_id": jid})
+    
+    if d.get('error'):
+        jobs_col.update_one({"job_id": jid}, {"$set": {"status": d['error']}})
     else:
-        queue.update_one({"link": link}, {"$set": {"status": d.get('url', 'HATA')}})
-    return jsonify({"status": "ok"})
+        did = str(uuid.uuid4())[:8]
+        deliveries_col.insert_one({"id": did, "html": d['html']})
+        jobs_col.update_one({"job_id": jid}, {"$set": {"status": "TAMAMLANDI", "delivery_id": did}})
+        users_col.update_one({"key": job['user_key']}, {"$inc": {"used_gb": d['size']}})
+        
+    return jsonify({"ok": True})
+
+# --- ADMIN API ---
+@app.route('/api/admin/users')
+def admin_users():
+    if request.args.get('pwd') != ADMIN_PASSWORD: return jsonify({"err": True})
+    return jsonify({"users": list(users_col.find({}, {'_id':0}))})
+
+@app.route('/api/admin/create')
+def admin_create():
+    if request.args.get('pwd') != ADMIN_PASSWORD: return jsonify({"err": True})
+    key = "YAEL-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    users_col.insert_one({"key": key, "limit_gb": int(request.args.get('limit')), "used_gb": 0, "hwid": None, "banned": False})
+    return jsonify({"key": key})
+
+@app.route('/api/admin/ban', methods=['POST'])
+def admin_ban():
+    d = request.json
+    if d.get('pwd') != ADMIN_PASSWORD: return jsonify({"err": True})
+    users_col.update_one({"key": d['key']}, {"$set": {"banned": d['ban']}})
+    return jsonify({"ok": True})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
